@@ -1,65 +1,124 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Github, ArrowRight, Loader2 } from "lucide-react";
+import { fetchGitHubData } from "./actions";
+import FeatureTiles from "@/components/FeatureTiles";
+import { WhatsNewBadge } from "@/components/WhatsNewBadge";
 
 export default function Home() {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const router = useRouter();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const result = await fetchGitHubData(input);
+
+      if (result.error) {
+        setError(result.error);
+      } else {
+        // Store data in localStorage or pass via query params/state manager
+        // For simplicity, we'll use query params for the ID and fetch again or use a context
+        // Let's just navigate to /chat with the query
+        router.push(`/chat?q=${encodeURIComponent(input)}`);
+      }
+    } catch (err) {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="flex flex-col bg-black text-white overflow-x-hidden">
+      {/* Hero Section */}
+      <section className="min-h-screen flex flex-col items-center justify-center p-4 relative">
+        {/* What's New Badge */}
+        <WhatsNewBadge />
+
+        {/* Background Gradients */}
+        <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-purple-600/30 rounded-full blur-[128px]" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-blue-600/30 rounded-full blur-[128px]" />
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          className="z-10 flex flex-col items-center text-center max-w-2xl"
+        >
+          <div className="mb-8 p-4 bg-white/5 rounded-full border border-white/10 backdrop-blur-md">
+            <Github className="w-12 h-12 text-white" />
+          </div>
+
+          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60">
+            RepoMind
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="text-lg md:text-xl text-zinc-400 mb-12 max-w-lg">
+            Deep dive into any repository or profile.
+            Analyze code, ask questions, and understand projects in seconds.
           </p>
+
+          <form onSubmit={handleSubmit} className="w-full max-w-md relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200" />
+            <div className="relative flex items-center bg-zinc-900 rounded-lg p-1">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="username or username/repo"
+                className="flex-1 bg-transparent border-none outline-none text-white px-4 py-3 placeholder-zinc-500"
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="bg-white text-black p-3 rounded-md hover:bg-zinc-200 transition-colors disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
+              </button>
+            </div>
+          </form>
+
+          {error && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-4 text-red-400 text-sm"
+            >
+              {error}
+            </motion.p>
+          )}
+
+          <div className="mt-16 flex gap-4 text-sm text-zinc-500">
+            <span>Try:</span>
+            <button onClick={() => setInput("torvalds")} className="hover:text-white transition-colors">torvalds</button>
+            <span>•</span>
+            <button onClick={() => setInput("facebook/react")} className="hover:text-white transition-colors">facebook/react</button>
+            <span>•</span>
+            <button onClick={() => setInput("vercel/next.js")} className="hover:text-white transition-colors">vercel/next.js</button>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Feature Tiles Section */}
+      <section className="relative py-20">
+        {/* Background gradient for features section */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-r from-purple-600/20 to-blue-600/20 rounded-full blur-[150px] pointer-events-none" />
+
+        <div className="relative z-10">
+          <FeatureTiles />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </section>
+    </main>
   );
 }
