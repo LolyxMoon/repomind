@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
 [![Gemini AI](https://img.shields.io/badge/Gemini-2.5_Flash-blue)](https://ai.google.dev/)
-
+<>
 **[Try RepoMind now!](https://repomind-ai.vercel.app)** 
 
 **[Ask RepoMind about RepoMind :3](https://repomind-ai.vercel.app/chat?q=403errors/repomind)**
