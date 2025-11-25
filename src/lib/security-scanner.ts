@@ -112,14 +112,14 @@ const CODE_PATTERNS = [
     },
     {
         name: 'SQL concatenation',
-        regex: /(SELECT|INSERT|UPDATE|DELETE).*?\+.*?['"`]/i,
+        regex: /(?:SELECT|INSERT|UPDATE|DELETE)\s+.*?\+\s*(?:req\.|params\.|query\.|body\.|user\.|input\.)/i,
         severity: 'high' as const,
         cwe: 'CWE-89',
         recommendation: 'Use parameterized queries or ORM to prevent SQL injection.',
     },
     {
         name: 'Unsafe child_process',
-        regex: /exec\s*\(|spawn\s*\(/,
+        regex: /(?:child_process|cp)\s*\.\s*(?:exec|spawn)\s*\(/,
         severity: 'high' as const,
         cwe: 'CWE-78',
         recommendation: 'Validate and sanitize all input passed to child_process. Use execFile() instead of exec() when possible.',

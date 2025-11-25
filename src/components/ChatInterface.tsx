@@ -23,7 +23,7 @@ import type { StreamUpdate } from "@/lib/streaming-types";
 mermaid.initialize({
     startOnLoad: false,
     theme: 'base',
-    securityLevel: 'loose',
+    securityLevel: 'strict', // Prevent XSS attacks by enabling HTML sanitization
     themeVariables: {
         primaryColor: '#18181b', // zinc-900
         primaryTextColor: '#e4e4e7', // zinc-200
