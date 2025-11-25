@@ -23,6 +23,16 @@ export interface ScanSummary {
     medium: number;
     low: number;
     info: number;
+    // Debug info
+    debug?: {
+        filesReceived: number;
+        codeFilesFiltered: number;
+        filesSuccessfullyFetched: number;
+        patternFindings: number;
+        aiFindings: number;
+        afterDedup: number;
+        afterConfidenceFilter: number;
+    };
 }
 
 /**
@@ -71,6 +81,13 @@ const SECRET_PATTERNS = [
  */
 export function detectSecrets(filepath: string, content: string): SecurityFinding[] {
     const findings: SecurityFinding[] = [];
+
+    // Defensive check: ensure content is a string
+    if (typeof content !== 'string') {
+        console.warn(`Skipping secret detection for ${filepath}: content is not a string`);
+        return findings;
+    }
+
     const lines = content.split('\n');
 
     lines.forEach((line, index) => {
@@ -92,6 +109,7 @@ export function detectSecrets(filepath: string, content: string): SecurityFindin
 
     return findings;
 }
+
 
 /**
  * Security patterns to check in code
@@ -157,6 +175,12 @@ const CODE_PATTERNS: CodePattern[] = [
 export function detectCodePatterns(filepath: string, content: string): SecurityFinding[] {
     // Only scan code files
     if (!/\.(js|jsx|ts|tsx|py|java|php)$/.test(filepath)) {
+        return [];
+    }
+
+    // Defensive check: ensure content is a string
+    if (typeof content !== 'string') {
+        console.warn(`Skipping code pattern detection for ${filepath}: content is not a string`);
         return [];
     }
 

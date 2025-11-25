@@ -185,8 +185,14 @@ Be extremely conservative. False alarms erode trust.
             .filter(finding => validateFinding(finding, files)); // Post-process validation
 
         return findings;
-    } catch (error) {
+    } catch (error: any) {
         console.error('Gemini security analysis error:', error);
+        console.error('Error details:', {
+            message: error?.message,
+            status: error?.status,
+            statusText: error?.statusText
+        });
+        // Return empty array instead of throwing to allow graceful degradation
         return [];
     }
 }

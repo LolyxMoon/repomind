@@ -119,9 +119,10 @@ export async function generateAnswer(
     query: string,
     context: string,
     repoDetails: { owner: string; repo: string },
-    history: { role: "user" | "model"; content: string }[] = []
+    history: { role: "user" | "model"; content: string }[] = [],
+    profileData?: any // Optional profile data
 ): Promise<string> {
-    return await answerWithContext(query, context, repoDetails, undefined, history);
+    return await answerWithContext(query, context, repoDetails, profileData, history);
 }
 
 export async function processProfileQuery(
@@ -248,39 +249,76 @@ export async function scanRepositoryVulnerabilities(
             /\.(js|jsx|ts|tsx|py|java|php|rb|go|rs)$/i.test(f.path) || f.path === 'package.json'
         ).slice(0, 20); // Limit to 20 files for performance
 
+        console.log('🔍 Security Scan: Found', codeFiles.length, 'code files to scan');
+        console.log('📁 Files to scan:', codeFiles.map(f => f.path));
+
         // Fetch file contents
         const filesWithContent: Array<{ path: string; content: string }> = [];
         for (const file of codeFiles) {
             try {
                 const content = await getFileContent(owner, repo, file.path, file.sha);
-                filesWithContent.push({ path: file.path, content });
+                // Ensure content is a string (skip binary files)
+                if (typeof content === 'string' && content.length > 0) {
+                    filesWithContent.push({ path: file.path, content });
+                    console.log('✅ Fetched:', file.path, `(${content.length} bytes)`);
+                } else {
+                    console.warn(`⚠️ Skipping ${file.path}: content is not a string or is empty`);
+                }
             } catch (e) {
-                console.warn(`Failed to fetch ${file.path} for security scan`);
+                console.warn(`❌ Failed to fetch ${file.path} for security scan:`, e);
             }
         }
 
+        console.log('📄 Successfully fetched', filesWithContent.length, 'files for scanning');
+
         // Pattern-based scanning (fast, zero API costs)
         const patternFindings = scanFiles(filesWithContent);
+        console.log('🔎 Pattern-based scan found', patternFindings.length, 'issues');
 
         // AI-powered analysis (more thorough, uses Gemini)
-        const aiFindings = await analyzeCodeWithGemini(filesWithContent);
+        let aiFindings: SecurityFinding[] = [];
+        try {
+            aiFindings = await analyzeCodeWithGemini(filesWithContent);
+            console.log('🤖 AI scan found', aiFindings.length, 'issues');
+        } catch (aiError) {
+            console.warn('AI security analysis failed, continuing with pattern-based results only:', aiError);
+            // Continue with pattern findings only if AI fails
+        }
 
         // Combine and deduplicate findings
         const allFindings = deduplicateFindings([...patternFindings, ...aiFindings]);
+        console.log('🔗 Combined findings (before dedup):', patternFindings.length + aiFindings.length);
+        console.log('🔗 After deduplication:', allFindings.length);
 
         // Filter by confidence (only show high/medium confidence)
         const filteredFindings = allFindings.filter(f =>
             !f.confidence || f.confidence !== 'low'
         );
+        console.log('✨ After confidence filtering:', filteredFindings.length);
+        console.log('📊 Final results:', filteredFindings);
 
         // Get summary and grouped results
         const summary = getScanSummary(filteredFindings);
+
+        // Add debug info to summary
+        summary.debug = {
+            filesReceived: files.length,
+            codeFilesFiltered: codeFiles.length,
+            filesSuccessfullyFetched: filesWithContent.length,
+            patternFindings: patternFindings.length,
+            aiFindings: aiFindings.length,
+            afterDedup: allFindings.length,
+            afterConfidenceFilter: filteredFindings.length
+        };
+
         const grouped = groupBySeverity(filteredFindings);
 
         return { findings: filteredFindings, summary, grouped };
-    } catch (error) {
+    } catch (error: any) {
         console.error('Vulnerability scanning error:', error);
-        throw new Error('Failed to scan repository for vulnerabilities');
+        // Provide more detailed error message
+        const errorMessage = error?.message || 'Unknown error occurred';
+        throw new Error(`Failed to scan repository for vulnerabilities: ${errorMessage}`);
     }
 }
 

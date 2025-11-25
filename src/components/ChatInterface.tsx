@@ -4,7 +4,7 @@ import { BotIcon } from "@/components/icons/BotIcon";
 import { UserIcon } from "@/components/icons/UserIcon";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { analyzeRepoFiles, fetchRepoFiles, generateAnswer, scanRepositoryVulnerabilities } from "@/app/actions";
+import { analyzeRepoFiles, fetchRepoFiles, generateAnswer, scanRepositoryVulnerabilities, fetchProfile } from "@/app/actions";
 import { cn } from "@/lib/utils";
 import mermaid from "mermaid";
 import html2canvas from "html2canvas-pro";
@@ -186,6 +186,20 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
     // Streaming state
     const [streamingStatus, setStreamingStatus] = useState<{ message: string; progress: number } | null>(null);
     const [currentStreamingMessage, setCurrentStreamingMessage] = useState("");
+    const [ownerProfile, setOwnerProfile] = useState<any>(null);
+
+    // Fetch owner profile on mount
+    useEffect(() => {
+        const loadProfile = async () => {
+            try {
+                const profile = await fetchProfile(repoContext.owner);
+                setOwnerProfile(profile);
+            } catch (e) {
+                console.error("Failed to load owner profile:", e);
+            }
+        };
+        loadProfile();
+    }, [repoContext.owner]);
 
     // Load conversation on mount
     const toastShownRef = useRef(false);
@@ -256,35 +270,71 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
 
         // Handle special commands
         if (input.toLowerCase().includes("find security vulnerabilities") || input.toLowerCase().includes("scan for vulnerabilities")) {
+            console.log('🎯 Security scan triggered!');
             setScanning(true);
             try {
+                // Step 1: Start scan
+                setStreamingStatus({ message: "Preparing security scan...", progress: 10 });
+
                 const filesToScan = repoContext.fileTree.map((f: any) => ({ path: f.path, sha: f.sha }));
+                console.log('📋 Total files in tree:', filesToScan.length);
+
+                // Step 2: Show file count
+                const codeFileCount = filesToScan.filter((f: any) =>
+                    /\.(js|jsx|ts|tsx|py|java|php|rb|go|rs)$/i.test(f.path) || f.path === 'package.json'
+                ).length;
+                console.log('💻 Code files found:', codeFileCount);
+                setStreamingStatus({ message: `Scanning ${Math.min(codeFileCount, 20)} code files...`, progress: 30 });
+
+                // Step 3: Run scan
+                setStreamingStatus({ message: "Running pattern-based analysis...", progress: 50 });
+                console.log('🚀 Calling scanRepositoryVulnerabilities...');
+
                 const { findings, summary } = await scanRepositoryVulnerabilities(
                     repoContext.owner,
                     repoContext.repo,
                     filesToScan
                 );
 
-                let content = `I've scanned the repository and found **${summary.total} potential issues**.\n\n`;
+                console.log('✅ Scan complete! Findings:', findings.length, 'Summary:', summary);
+                console.log('📊 Debug Info:', summary.debug);
 
-                if (summary.critical > 0) content += `🔴 **${summary.critical} Critical**\n`;
-                if (summary.high > 0) content += `🟠 **${summary.high} High**\n`;
-                if (summary.medium > 0) content += `🟡 **${summary.medium} Medium**\n`;
-                if (summary.low > 0) content += `🔵 **${summary.low} Low**\n`;
+                // Step 4: Finalizing
+                setStreamingStatus({ message: "Analyzing results...", progress: 90 });
 
-                content += `\nHere are the key findings:\n\n`;
 
-                findings.slice(0, 5).forEach(f => {
-                    content += `### ${f.title}\n`;
-                    content += `**Severity**: ${f.severity.toUpperCase()}\n`;
-                    content += `**File**: \`${f.file}\` ${f.line ? `(Line ${f.line})` : ''}\n`;
-                    content += `**Issue**: ${f.description}\n`;
-                    content += `**Fix**: ${f.recommendation}\n\n`;
-                });
 
-                if (findings.length > 5) {
-                    content += `*...and ${findings.length - 5} more issues.*`;
+                let content = '';
+
+                if (summary.total === 0) {
+                    // No vulnerabilities found
+                    const filesScanned = summary.debug?.filesSuccessfullyFetched || 0;
+                    content = `✅ **Security scan complete!**\n\nI've scanned **${filesScanned} files** and found **no security vulnerabilities**.\n\nYour code looks secure! The scan checked for:\n- SQL injection vulnerabilities\n- Cross-site scripting (XSS)\n- Unsafe child_process usage\n- Hardcoded secrets\n- Weak cryptographic algorithms\n- Command injection\n\nKeep up the good security practices! 🔒`;
+                } else {
+                    // Vulnerabilities found
+                    const filesScanned = summary.debug?.filesSuccessfullyFetched || 0;
+                    content = `⚠️ **Security scan complete!**\n\nI've scanned **${filesScanned} files** and found **${summary.total} potential issue${summary.total !== 1 ? 's' : ''}**.\n\n`;
+
+                    if (summary.critical > 0) content += `🔴 **${summary.critical} Critical**\n`;
+                    if (summary.high > 0) content += `🟠 **${summary.high} High**\n`;
+                    if (summary.medium > 0) content += `🟡 **${summary.medium} Medium**\n`;
+                    if (summary.low > 0) content += `🔵 **${summary.low} Low**\n`;
+
+                    content += `\nHere are the key findings:\n\n`;
+
+                    findings.slice(0, 5).forEach(f => {
+                        content += `### ${f.title}\n`;
+                        content += `**Severity**: ${f.severity.toUpperCase()}\n`;
+                        content += `**File**: \`${f.file}\` ${f.line ? `(Line ${f.line})` : ''}\n`;
+                        content += `**Issue**: ${f.description}\n`;
+                        content += `**Fix**: ${f.recommendation}\n\n`;
+                    });
+
+                    if (findings.length > 5) {
+                        content += `*...and ${findings.length - 5} more issue${findings.length - 5 !== 1 ? 's' : ''}.*`;
+                    }
                 }
+
 
                 const modelMsg: Message = {
                     id: (Date.now() + 1).toString(),
@@ -293,14 +343,27 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                     vulnerabilities: findings as any
                 };
                 setMessages((prev) => [...prev, modelMsg]);
+                setStreamingStatus(null); // Clear streaming status
                 setLoading(false);
                 setScanning(false);
                 return;
             } catch (error) {
                 console.error("Scan failed:", error);
-                toast.error("Security scan failed");
+                toast.error("Security scan failed", {
+                    description: error instanceof Error ? error.message : "An error occurred during scanning"
+                });
+                setStreamingStatus(null); // Clear streaming status
                 setScanning(false);
-                // Fall through to normal chat processing if scan fails
+                setLoading(false);
+
+                // Show error message to user
+                const errorMsg: Message = {
+                    id: (Date.now() + 1).toString(),
+                    role: "model",
+                    content: "I encountered an error while scanning for security vulnerabilities. Please try again.",
+                };
+                setMessages((prev) => [...prev, errorMsg]);
+                return; // Don't fall through to normal chat
             }
         }
 
@@ -327,7 +390,8 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                 input,
                 context,
                 { owner: repoContext.owner, repo: repoContext.repo },
-                messages.map(m => ({ role: m.role, content: m.content }))
+                messages.map(m => ({ role: m.role, content: m.content })),
+                ownerProfile // Pass profile data for developer cards
             );
 
             const modelMsg: Message = {
