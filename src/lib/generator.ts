@@ -17,7 +17,7 @@ export async function generateDocumentation(
       Return ONLY the documentation code block, no markdown wrappers if possible, or just the content.
       
       Code:
-      ${code.slice(0, 5000)}
+      ${code}
     `;
 
         const result = await model.generateContent(prompt);
@@ -44,7 +44,7 @@ export async function generateTests(
       Return ONLY the test code.
       
       Code:
-      ${code.slice(0, 5000)}
+      ${code}
     `;
 
         const result = await model.generateContent(prompt);
@@ -64,10 +64,24 @@ export async function suggestRefactoring(code: string): Promise<string> {
 
         const prompt = `
       Suggest a refactoring for this code to improve readability and performance.
-      Explain the changes briefly and provide the refactored code.
+      
+      IMPORTANT FORMATTING RULES:
+      1. Use standard Markdown.
+      2. Provide explanations as normal text.
+      3. Use code blocks ONLY for the actual code.
+      4. DO NOT wrap the entire response in a single code block.
+      
+      Structure:
+      ### Explanation
+      (Your explanation here)
+      
+      ### Refactored Code
+      \`\`\`(language)
+            (Your code here)
+            \`\`\`
       
       Code:
-      ${code.slice(0, 5000)}
+      ${code}
     `;
 
         const result = await model.generateContent(prompt);

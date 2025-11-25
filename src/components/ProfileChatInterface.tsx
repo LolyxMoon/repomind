@@ -254,7 +254,7 @@ export function ProfileChatInterface({ profile, profileReadme, repoReadmes }: Pr
 
                             {/* Token Count Display */}
                             <div className={cn(
-                                "ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                                "ml-auto hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                                 tokenWarningLevel === 'danger' && "bg-red-500/10 text-red-400 border border-red-500/20",
                                 tokenWarningLevel === 'warning' && "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20",
                                 tokenWarningLevel === 'safe' && "bg-zinc-800 text-zinc-400 border border-white/10"
@@ -266,7 +266,7 @@ export function ProfileChatInterface({ profile, profileReadme, repoReadmes }: Pr
                         {profile.bio && (
                             <p className="text-zinc-400 mb-3 line-clamp-2">{profile.bio}</p>
                         )}
-                        <div className="flex gap-4 text-sm text-zinc-500">
+                        <div className="flex w-full justify-between md:justify-start md:gap-4 text-sm text-zinc-500">
                             <span className="flex items-center gap-1">
                                 <BookMarked className="w-4 h-4" />
                                 {profile.public_repos} repos

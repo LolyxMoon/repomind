@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { RepoSidebar } from "./RepoSidebar";
 import { ChatInterface } from "./ChatInterface";
 import { FilePreview } from "./FilePreview";
@@ -11,9 +11,10 @@ interface RepoLayoutProps {
     owner: string;
     repo: string;
     hiddenFiles?: { path: string; reason: string }[];
+    repoData: any; // Full GitHubRepo object
 }
 
-export function RepoLayout({ fileTree, repoName, owner, repo, hiddenFiles = [] }: RepoLayoutProps) {
+export function RepoLayout({ fileTree, repoName, owner, repo, hiddenFiles = [], repoData }: RepoLayoutProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [previewFile, setPreviewFile] = useState<string | null>(null);
 
@@ -25,6 +26,18 @@ export function RepoLayout({ fileTree, repoName, owner, repo, hiddenFiles = [] }
         }
     };
 
+    // Listen for custom event to open file preview from chat
+    useEffect(() => {
+        const handleOpenPreview = (e: CustomEvent<string>) => {
+            setPreviewFile(e.detail);
+        };
+
+        window.addEventListener('open-file-preview' as any, handleOpenPreview as any);
+        return () => {
+            window.removeEventListener('open-file-preview' as any, handleOpenPreview as any);
+        };
+    }, []);
+
     return (
         <>
             <div className="flex h-screen bg-black overflow-hidden">
@@ -35,6 +48,7 @@ export function RepoLayout({ fileTree, repoName, owner, repo, hiddenFiles = [] }
                     onClose={() => setSidebarOpen(false)}
                     onFileDoubleClick={handleFileDoubleClick}
                     hiddenFiles={hiddenFiles}
+                    repoData={repoData}
                 />
                 <div className="flex-1 h-full flex flex-col">
                     {/* Hamburger button for mobile */}

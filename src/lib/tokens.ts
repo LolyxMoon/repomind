@@ -35,11 +35,15 @@ export function formatTokenCount(count: number): string {
 }
 
 /**
+ * Maximum context window tokens
+ */
+export const MAX_TOKENS = 200_000;
+
+/**
  * Get warning level based on token usage
- * Gemini 2.5 Flash has 1M context window
+ * Gemini 2.5 Flash has 1M context window (configured to 200k for this app)
  */
 export function getTokenWarningLevel(tokenCount: number): 'safe' | 'warning' | 'danger' {
-    const MAX_TOKENS = 1_000_000;
     const percentage = (tokenCount / MAX_TOKENS) * 100;
 
     if (percentage >= 90) return 'danger';

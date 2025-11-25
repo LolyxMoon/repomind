@@ -42,29 +42,82 @@ export const Mermaid = ({ chart }: { chart: string }) => {
     }, [chart]);
 
     useEffect(() => {
-        if (chart) {
-            // Validate and sanitize
-            const sanitized = sanitizeMermaidCode(chart);
-            const validation = validateMermaidSyntax(sanitized);
+        if (!chart) return;
 
-            if (!validation.valid) {
-                console.warn('Invalid Mermaid syntax, using fallback:', validation.error);
-                const fallback = getFallbackTemplate(chart);
-                mermaid.render(id, fallback).then(({ svg }) => setSvg(svg));
-                return;
+        let mounted = true;
+
+        const renderDiagram = async () => {
+            try {
+                // Layer 1: Basic sanitization (fast, catches obvious issues)
+                console.log('🔄 Attempting Layer 1: Basic sanitization...');
+                const sanitized = sanitizeMermaidCode(chart);
+                const validation = validateMermaidSyntax(sanitized);
+
+                if (!validation.valid) {
+                    console.warn('⚠️ Validation warning:', validation.error);
+                }
+
+                // Try rendering with sanitized code
+                try {
+                    const { svg } = await mermaid.render(id, sanitized);
+                    if (mounted) {
+                        setSvg(svg);
+                        setError(null);
+                        console.log('✅ Layer 1 successful: Basic sanitization worked');
+                    }
+                    return; // Success!
+                } catch (renderError: any) {
+                    console.warn('❌ Layer 1 failed:', renderError.message || 'Render error');
+                    console.log('🔄 Attempting Layer 2: AI-powered fix...');
+                }
+
+                // Layer 2: AI-powered syntax fix (intelligent correction)
+                try {
+                    const response = await fetch('/api/fix-mermaid', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: sanitized })
+                    });
+
+                    if (response.ok) {
+                        const { fixed } = await response.json();
+                        if (fixed && mounted) {
+                            const { svg } = await mermaid.render(id + '-fixed', fixed);
+                            setSvg(svg);
+                            setError(null);
+                            console.log('✅ Layer 2 successful: AI fix worked');
+                            return; // Success!
+                        }
+                    } else {
+                        console.warn('❌ Layer 2 failed: API response not ok');
+                    }
+                } catch (aiError: any) {
+                    console.warn('❌ Layer 2 failed:', aiError.message || 'AI fix error');
+                }
+
+                // Layer 3: Fallback template (guaranteed to work)
+                console.log('🔄 Attempting Layer 3: Fallback template...');
+                if (mounted) {
+                    const fallback = getFallbackTemplate(chart);
+                    const { svg } = await mermaid.render(id + '-fallback', fallback);
+                    setSvg(svg);
+                    setError(null);
+                    console.log('✅ Layer 3 successful: Using fallback template');
+                }
+
+            } catch (error: any) {
+                console.error('Complete render failure:', error);
+                if (mounted) {
+                    setError('Failed to render diagram');
+                }
             }
+        };
 
-            mermaid.render(id, sanitized).then(({ svg }) => {
-                setSvg(svg);
-                setError(null);
-            }).catch((error) => {
-                console.error("Mermaid render error:", error);
-                setError("Failed to render diagram");
-                // Try fallback on render error too
-                const fallback = getFallbackTemplate(chart);
-                mermaid.render(id, fallback).then(({ svg }) => setSvg(svg)).catch(() => { });
-            });
-        }
+        renderDiagram();
+
+        return () => {
+            mounted = false;
+        };
     }, [chart, id]);
 
     const exportToPNG = async (e?: React.MouseEvent) => {

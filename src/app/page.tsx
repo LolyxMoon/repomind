@@ -42,48 +42,48 @@ export default function Home() {
   return (
     <main className="flex flex-col bg-black text-white overflow-x-hidden">
       {/* Hero Section */}
-      <section className="min-h-screen flex flex-col items-center justify-center p-4 relative">
+      <section className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
         {/* What's New Badge */}
         <WhatsNewBadge />
 
         {/* Background Gradients */}
-        <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-purple-600/30 rounded-full blur-[128px]" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-blue-600/30 rounded-full blur-[128px]" />
+        <div className="absolute top-[-20%] left-[-10%] w-[80vw] max-w-[500px] h-[80vw] max-h-[500px] bg-purple-600/30 rounded-full blur-[80px] md:blur-[128px]" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[80vw] max-w-[500px] h-[80vw] max-h-[500px] bg-blue-600/30 rounded-full blur-[80px] md:blur-[128px]" />
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
-          className="z-10 flex flex-col items-center text-center max-w-2xl"
+          className="z-10 flex flex-col items-center text-center max-w-2xl w-full px-4"
         >
           <div className="mb-8 p-4 bg-white/5 rounded-full border border-white/10 backdrop-blur-md">
-            <Github className="w-12 h-12 text-white" />
+            <Github className="w-10 h-10 md:w-12 md:h-12 text-white" />
           </div>
 
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60">
+          <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60">
             RepoMind
           </h1>
 
-          <p className="text-lg md:text-xl text-zinc-400 mb-12 max-w-lg">
+          <p className="text-base sm:text-lg md:text-xl text-zinc-400 mb-12 max-w-lg mx-auto">
             Deep dive into any repository or profile.
             Analyze code, ask questions, and understand projects in seconds.
           </p>
 
-          <form onSubmit={handleSubmit} className="w-full max-w-md relative group px-4 md:px-0">
-            <div className="conic-border-container flex items-center bg-zinc-900 p-1">
+          <form onSubmit={handleSubmit} className="w-full max-w-md relative group">
+            <div className="conic-border-container flex items-center bg-zinc-900 p-1 rounded-lg">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="username or username/repo"
-                className="flex-1 bg-transparent border-none outline-none text-white px-4 py-3 placeholder-zinc-500"
+                className="flex-1 bg-transparent border-none outline-none text-white px-3 py-2 md:px-4 md:py-3 placeholder-zinc-500 text-sm md:text-base w-full min-w-0"
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-white text-black p-3 rounded-md hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                className="bg-white text-black p-2 md:p-3 rounded-md hover:bg-zinc-200 transition-colors disabled:opacity-50 shrink-0"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
+                {loading ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <ArrowRight className="w-4 h-4 md:w-5 md:h-5" />}
               </button>
             </div>
           </form>
@@ -98,12 +98,12 @@ export default function Home() {
             </motion.p>
           )}
 
-          <div className="mt-16 flex flex-wrap justify-center gap-4 text-sm text-zinc-500 px-4">
+          <div className="mt-12 md:mt-16 flex flex-wrap justify-center gap-3 md:gap-4 text-xs md:text-sm text-zinc-500">
             <span>Try:</span>
             <button onClick={() => setInput("torvalds")} className="hover:text-white transition-colors">torvalds</button>
-            <span>•</span>
+            <span className="hidden sm:inline">•</span>
             <button onClick={() => setInput("facebook/react")} className="hover:text-white transition-colors">facebook/react</button>
-            <span>•</span>
+            <span className="hidden sm:inline">•</span>
             <button onClick={() => setInput("vercel/next.js")} className="hover:text-white transition-colors">vercel/next.js</button>
           </div>
         </motion.div>

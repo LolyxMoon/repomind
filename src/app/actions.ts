@@ -1,9 +1,11 @@
 "use server";
 
-import { getProfile, getRepo, getRepoFileTree, getFileContent, getProfileReadme, getReposReadmes } from "@/lib/github";
-import { analyzeFileSelection, answerWithContext } from "@/lib/gemini";
+import { getProfile, getRepo, getRepoFileTree, getFileContent, getProfileReadme, getReposReadmes, getFileContentBatch } from "@/lib/github";
+import { analyzeFileSelection, answerWithContext, answerWithContextStream } from "@/lib/gemini";
 import { scanFiles, getScanSummary, groupBySeverity, type SecurityFinding, type ScanSummary } from "@/lib/security-scanner";
 import { analyzeCodeWithGemini } from "@/lib/gemini-security";
+import { countTokens } from "@/lib/tokens";
+import type { StreamUpdate } from "@/lib/streaming-types";
 
 export async function fetchGitHubData(input: string) {
     // Input format: "username" or "owner/repo"
@@ -17,8 +19,9 @@ export async function fetchGitHubData(input: string) {
             // The rest will be loaded by the client component
             const profile = await getProfile(username);
             return { type: "profile", data: profile };
-        } catch (e) {
-            return { error: "User not found" };
+        } catch (e: any) {
+            console.error("Profile fetch error:", e);
+            return { error: `User not found: ${e.message || e}` };
         }
     } else if (parts.length === 2) {
         // Repo Mode
@@ -28,8 +31,9 @@ export async function fetchGitHubData(input: string) {
             // Use the default branch from the repo data to avoid phantom files from stale 'main' branches
             const { tree, hiddenFiles } = await getRepoFileTree(owner, repo, repoData.default_branch);
             return { type: "repo", data: repoData, fileTree: tree, hiddenFiles };
-        } catch (e) {
-            return { error: "Repository not found" };
+        } catch (e: any) {
+            console.error("Repo fetch error:", e);
+            return { error: `Repository not found: ${e.message || e}` };
         }
     }
 
@@ -54,7 +58,8 @@ export async function fetchRepoDetails(owner: string, repo: string) {
 
 export async function processChatQuery(
     query: string,
-    repoContext: { owner: string; repo: string; filePaths: string[] }
+    repoContext: { owner: string; repo: string; filePaths: string[] },
+    history: { role: "user" | "model"; content: string }[] = []
 ) {
     // 1. Agentic Selection: Which files do we need?
     const filePaths = repoContext.filePaths;
@@ -62,10 +67,21 @@ export async function processChatQuery(
 
     // 2. Retrieval: Fetch content of relevant files
     let context = "";
+    let currentTokenCount = 0;
+    const MAX_CONTEXT_TOKENS = 200000;
+
     for (const file of relevantFiles) {
         try {
             const content = await getFileContent(repoContext.owner, repoContext.repo, file);
+            const fileTokens = countTokens(content);
+
+            if (currentTokenCount + fileTokens > MAX_CONTEXT_TOKENS) {
+                context += `\n--- NOTE: Context truncated due to token limit (${MAX_CONTEXT_TOKENS} tokens) ---\n`;
+                break;
+            }
+
             context += `\n--- FILE: ${file} ---\n${content}\n`;
+            currentTokenCount += fileTokens;
         } catch (e) {
             console.warn(`Failed to fetch ${file}`, e);
         }
@@ -77,8 +93,67 @@ export async function processChatQuery(
         context = "No specific files were selected. Answer based on general knowledge or explain that you need to check specific files.";
     }
 
-    const answer = await answerWithContext(query, context, { owner: repoContext.owner, repo: repoContext.repo });
+    const answer = await answerWithContext(query, context, { owner: repoContext.owner, repo: repoContext.repo }, undefined, history);
     return { answer, relevantFiles };
+}
+
+/**
+ * Step 1: Analyze and select relevant files
+ * This can be called first to show progress
+ */
+export async function analyzeRepoFiles(
+    query: string,
+    filePaths: string[]
+): Promise<{ relevantFiles: string[]; fileCount: number }> {
+    const relevantFiles = await analyzeFileSelection(query, filePaths);
+    return { relevantFiles, fileCount: relevantFiles.length };
+}
+
+/**
+ * Step 2: Fetch selected files with progress
+ */
+export async function fetchRepoFiles(
+    owner: string,
+    repo: string,
+    filePaths: string[]
+): Promise<{ context: string; filesProcessed: number }> {
+    const fileResults = await getFileContentBatch(owner, repo, filePaths);
+
+    let context = "";
+    let currentTokenCount = 0;
+    const MAX_CONTEXT_TOKENS = 200000;
+
+    for (const { path, content } of fileResults) {
+        if (content) {
+            const fileTokens = countTokens(content);
+
+            if (currentTokenCount + fileTokens > MAX_CONTEXT_TOKENS) {
+                context += `\n--- NOTE: Context truncated due to token limit (${MAX_CONTEXT_TOKENS} tokens) ---\n`;
+                break;
+            }
+
+            context += `\n--- FILE: ${path} ---\n${content}\n`;
+            currentTokenCount += fileTokens;
+        }
+    }
+
+    if (!context) {
+        context = "No specific files were selected.";
+    }
+
+    return { context, filesProcessed: fileResults.filter(f => f.content).length };
+}
+
+/**
+ * Step 3: Generate AI response (server action wrapper)
+ */
+export async function generateAnswer(
+    query: string,
+    context: string,
+    repoDetails: { owner: string; repo: string },
+    history: { role: "user" | "model"; content: string }[] = []
+): Promise<string> {
+    return await answerWithContext(query, context, repoDetails, undefined, history);
 }
 
 export async function processProfileQuery(
@@ -126,6 +201,68 @@ export async function processProfileQuery(
         profileContext.profile // Pass profile data
     );
     return { answer };
+}
+
+/**
+ * Streaming variant of processProfileQuery
+ */
+export async function* processProfileQueryStream(
+    query: string,
+    profileContext: {
+        username: string;
+        profile: any;
+        profileReadme: string | null;
+        repoReadmes: { repo: string; content: string; updated_at: string; description: string | null }[]
+    }
+): AsyncGenerator<StreamUpdate> {
+    try {
+        yield { type: "status", message: "Loading profile data...", progress: 20 };
+
+        let context = "";
+        context += `\n--- GITHUB PROFILE METADATA ---\n`;
+        context += `Username: ${profileContext.profile.login}\n`;
+        context += `Name: ${profileContext.profile.name || 'N/A'}\n`;
+        context += `Bio: ${profileContext.profile.bio || 'N/A'}\n`;
+        context += `Location: ${profileContext.profile.location || 'N/A'}\n`;
+        context += `Blog/Website: ${profileContext.profile.blog || 'N/A'}\n`;
+        context += `Avatar URL: ${profileContext.profile.avatar_url}\n`;
+        context += `Public Repos: ${profileContext.profile.public_repos}\n`;
+        context += `Followers: ${profileContext.profile.followers}\n`;
+        context += `Following: ${profileContext.profile.following}\n\n`;
+
+        if (profileContext.profileReadme) {
+            context += `\n--- ${profileContext.username}'S PROFILE README ---\n${profileContext.profileReadme}\n\n`;
+        }
+
+        yield { type: "status", message: "Analyzing repositories...", progress: 50 };
+
+        for (const readme of profileContext.repoReadmes) {
+            context += `\n--- REPO: ${readme.repo} ---\nLast Updated: ${readme.updated_at}\nDescription: ${readme.description || 'N/A'}\n\nREADME Content:\n${readme.content}\n\n`;
+        }
+
+        if (!context) {
+            context = `No profile README or repository READMEs found for ${profileContext.username}.`;
+        }
+
+        yield { type: "status", message: "Generating response...", progress: 80 };
+
+        const stream = answerWithContextStream(
+            query,
+            context,
+            { owner: profileContext.username, repo: "profile" },
+            profileContext.profile
+        );
+
+        for await (const chunk of stream) {
+            yield { type: "content", text: chunk, append: true };
+        }
+
+        yield { type: "complete", relevantFiles: [] };
+
+    } catch (error: any) {
+        console.error("Profile stream error:", error);
+        yield { type: "error", message: error.message || "An error occurred" };
+    }
 }
 
 /**
@@ -183,6 +320,12 @@ import { generateDocumentation, generateTests, suggestRefactoring } from "@/lib/
 export async function analyzeFileQuality(owner: string, repo: string, path: string): Promise<QualityReport | null> {
     try {
         const content = await getFileContent(owner, repo, path);
+
+        const wordCount = content.split(/\s+/).length;
+        if (wordCount > 5000) {
+            throw new Error("File is too large (over 5000 words)");
+        }
+
         return await analyzeCodeQuality(content, path);
     } catch (error) {
         console.error("Quality analysis failed:", error);
@@ -229,6 +372,11 @@ export async function generateArtifact(
 ): Promise<string> {
     try {
         const content = await getFileContent(owner, repo, path);
+
+        const wordCount = content.split(/\s+/).length;
+        if (wordCount > 5000) {
+            return "Error: File is too large (over 5000 words)";
+        }
 
         switch (type) {
             case 'doc':

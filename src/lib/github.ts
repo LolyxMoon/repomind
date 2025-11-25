@@ -1,7 +1,21 @@
 import { Octokit } from "octokit";
+import {
+  cacheFile,
+  getCachedFile,
+  cacheRepoMetadata,
+  getCachedRepoMetadata,
+  cacheProfileData,
+  getCachedProfileData,
+} from "./cache";
+
+// Validate GitHub token
+const githubToken = process.env.GITHUB_TOKEN;
+if (!githubToken) {
+  console.warn("⚠️ GITHUB_TOKEN environment variable is not set - API rate limits will be very restrictive");
+}
 
 const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN,
+  auth: githubToken,
   request: {
     fetch: (url: string, options: any) => {
       return fetch(url, {
@@ -55,26 +69,55 @@ export interface FileNode {
 }
 
 export async function getProfile(username: string): Promise<GitHubProfile> {
+  // Check memory cache first
   if (profileCache.has(username)) {
     return profileCache.get(username)!;
   }
+
+  // Check KV cache
+  const cached = await getCachedProfileData(username);
+  if (cached) {
+    profileCache.set(username, cached);
+    return cached;
+  }
+
+  // Fetch from GitHub
   const { data } = await octokit.rest.users.getByUsername({
     username,
   });
+
+  // Cache in both memory and KV
   profileCache.set(username, data);
+  await cacheProfileData(username, data);
+
   return data;
 }
 
 export async function getRepo(owner: string, repo: string): Promise<GitHubRepo> {
   const cacheKey = `${owner}/${repo}`;
+
+  // Check memory cache
   if (repoCache.has(cacheKey)) {
     return repoCache.get(cacheKey)!;
   }
+
+  // Check KV cache
+  const cached = await getCachedRepoMetadata(owner, repo);
+  if (cached) {
+    repoCache.set(cacheKey, cached);
+    return cached;
+  }
+
+  // Fetch from GitHub
   const { data } = await octokit.rest.repos.get({
     owner,
     repo,
   });
+
+  // Cache in both memory and KV
   repoCache.set(cacheKey, data);
+  await cacheRepoMetadata(owner, repo, data);
+
   return data;
 }
 
@@ -228,6 +271,7 @@ export async function getFileContent(
   path: string
 ) {
   try {
+    // First, get the file metadata to obtain SHA
     const { data } = await octokit.rest.repos.getContent({
       owner,
       repo,
@@ -235,13 +279,48 @@ export async function getFileContent(
     });
 
     if ("content" in data && !Array.isArray(data)) {
-      return Buffer.from(data.content, "base64").toString("utf-8");
+      const sha = data.sha;
+
+      // Check KV cache with SHA
+      const cached = await getCachedFile(owner, repo, path, sha);
+      if (cached) {
+        return cached;
+      }
+
+      // Decode content
+      const content = Buffer.from(data.content, "base64").toString("utf-8");
+
+      // Cache for future requests
+      await cacheFile(owner, repo, path, sha, content);
+
+      return content;
     }
     throw new Error("Not a file");
   } catch (error) {
     console.error("Error fetching file content:", error);
     throw error;
   }
+}
+
+/**
+ * Batch fetch multiple files in parallel with caching
+ */
+export async function getFileContentBatch(
+  owner: string,
+  repo: string,
+  paths: string[]
+): Promise<Array<{ path: string; content: string | null }>> {
+  const promises = paths.map(async (path) => {
+    try {
+      const content = await getFileContent(owner, repo, path);
+      return { path, content };
+    } catch (error) {
+      console.warn(`Failed to fetch ${path}:`, error);
+      return { path, content: null };
+    }
+  });
+
+  return await Promise.all(promises);
 }
 
 export async function getProfileReadme(username: string) {

@@ -2,18 +2,20 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Send, Loader2, FileCode, ChevronRight, Bot, User, ArrowLeft, Sparkles, Github, Menu, MessageCircle, Shield, AlertTriangle, Download, CheckCircle, Info, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { processChatQuery, scanRepositoryVulnerabilities } from "@/app/actions";
+import { analyzeRepoFiles, fetchRepoFiles, generateAnswer, scanRepositoryVulnerabilities } from "@/app/actions";
 import { cn } from "@/lib/utils";
 import mermaid from "mermaid";
 import html2canvas from "html2canvas-pro";
 import { EnhancedMarkdown } from "./EnhancedMarkdown";
-import { countMessageTokens, formatTokenCount, getTokenWarningLevel, isRateLimitError, getRateLimitErrorMessage } from "@/lib/tokens";
+import { countMessageTokens, formatTokenCount, getTokenWarningLevel, isRateLimitError, getRateLimitErrorMessage, MAX_TOKENS } from "@/lib/tokens";
 import { validateMermaidSyntax, sanitizeMermaidCode, getFallbackTemplate } from "@/lib/diagram-utils";
 import { saveConversation, loadConversation, clearConversation } from "@/lib/storage";
 import { DevTools } from "./DevTools";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CodeBlock } from "./CodeBlock";
 import Link from "next/link";
+import { StreamingProgress } from "./StreamingProgress";
+import type { StreamUpdate } from "@/lib/streaming-types";
 
 // Initialize mermaid
 mermaid.initialize({
@@ -35,8 +37,14 @@ import { Mermaid } from "./Mermaid";
 
 // ... (imports remain the same, remove local Mermaid definition)
 
+import { repairMarkdown } from "@/lib/markdown-utils";
+
+// ... (imports)
+
 // Extract MessageContent to a memoized component
 const MessageContent = ({ content, messageId }: { content: string, messageId: string }) => {
+    const repairedContent = useMemo(() => repairMarkdown(content), [content]);
+
     const components = useMemo(() => ({
         code: ({ className, children, ...props }: any) => {
             const match = /language-(\w+)/.exec(className || "");
@@ -88,7 +96,7 @@ const MessageContent = ({ content, messageId }: { content: string, messageId: st
 
     return (
         <EnhancedMarkdown
-            content={content}
+            content={repairedContent}
             components={components}
         />
     );
@@ -148,6 +156,10 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
     const [initialized, setInitialized] = useState(false);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+    // Streaming state
+    const [streamingStatus, setStreamingStatus] = useState<{ message: string; progress: number } | null>(null);
+    const [currentStreamingMessage, setCurrentStreamingMessage] = useState("");
+
     // Load conversation on mount
     const toastShownRef = useRef(false);
     useEffect(() => {
@@ -193,6 +205,15 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!input.trim() || loading) return;
+
+        // Check token limit
+        if (totalTokens >= MAX_TOKENS) {
+            toast.error("Conversation limit reached", {
+                description: "Please clear the chat to start a new conversation.",
+                duration: 5000,
+            });
+            return;
+        }
 
         setShowSuggestions(false);
 
@@ -258,20 +279,33 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
 
         try {
             const filePaths = repoContext.fileTree.map((f: any) => f.path);
-            const result = await processChatQuery(userMsg.content, {
-                owner: repoContext.owner,
-                repo: repoContext.repo,
-                filePaths
-            });
+
+            // Step 1: Analyze files
+            setStreamingStatus({ message: "Selecting relevant files...", progress: 10 });
+            const { relevantFiles, fileCount } = await analyzeRepoFiles(input, filePaths);
+
+            // Step 2: Fetch files  
+            setStreamingStatus({ message: `Fetching ${fileCount} file${fileCount !== 1 ? 's' : ''} from GitHub...`, progress: 40 });
+            const { context } = await fetchRepoFiles(repoContext.owner, repoContext.repo, relevantFiles);
+
+            // Step 3: Generate response
+            setStreamingStatus({ message: "Generating response...", progress: 70 });
+            const answer = await generateAnswer(
+                input,
+                context,
+                { owner: repoContext.owner, repo: repoContext.repo },
+                messages.map(m => ({ role: m.role, content: m.content }))
+            );
 
             const modelMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 role: "model",
-                content: result.answer,
-                relevantFiles: result.relevantFiles,
+                content: answer,
+                relevantFiles,
             };
 
             setMessages((prev) => [...prev, modelMsg]);
+            setStreamingStatus(null);
         } catch (error: any) {
             console.error(error);
 
@@ -294,6 +328,7 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                 content: "I encountered an error while analyzing the code. Please try again or rephrase your question.",
             };
             setMessages((prev) => [...prev, errorMsg]);
+            setStreamingStatus(null);
         } finally {
             setLoading(false);
         }
@@ -338,25 +373,27 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                     </div>
 
                     <div className={cn(
-                        "ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                        "ml-auto hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                         tokenWarningLevel === 'danger' && "bg-red-500/10 text-red-400 border border-red-500/20",
                         tokenWarningLevel === 'warning' && "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20",
                         tokenWarningLevel === 'safe' && "bg-zinc-800 text-zinc-400 border border-white/10"
                     )}>
                         <MessageCircle className="w-3.5 h-3.5" />
-                        <span>{formatTokenCount(totalTokens)} / 1M tokens</span>
+                        <span>{formatTokenCount(totalTokens)} / {formatTokenCount(MAX_TOKENS)} tokens</span>
                     </div>
 
-                    <DevTools
-                        repoContext={repoContext}
-                        onSendMessage={(role, content) => {
-                            setMessages(prev => [...prev, {
-                                id: Date.now().toString(),
-                                role,
-                                content
-                            }]);
-                        }}
-                    />
+                    <div className="hidden md:block">
+                        <DevTools
+                            repoContext={repoContext}
+                            onSendMessage={(role, content) => {
+                                setMessages(prev => [...prev, {
+                                    id: Date.now().toString(),
+                                    role,
+                                    content
+                                }]);
+                            }}
+                        />
+                    </div>
 
                     <button
                         onClick={() => setShowClearConfirm(true)}
@@ -370,10 +407,10 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                         href={`https://github.com/${repoContext.owner}/${repoContext.repo}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex items-center gap-2 shrink-0"
+                        className="text-sm p-2 md:px-4 md:py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex items-center gap-2 shrink-0"
                     >
                         <Github className="w-4 h-4" />
-                        <span className="hidden sm:inline">View on GitHub</span>
+                        <span className="hidden md:inline">View on GitHub</span>
                     </a>
                 </div>
             </div>
@@ -405,10 +442,10 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
 
                             <div className={cn(
                                 "flex flex-col gap-2",
-                                msg.role === "user" ? "items-end max-w-[80%]" : "items-start w-full min-w-0"
+                                msg.role === "user" ? "items-end max-w-[85%] md:max-w-[80%]" : "items-start max-w-[calc(100vw-5rem)] md:max-w-full w-full min-w-0"
                             )}>
                                 <div className={cn(
-                                    "p-4 rounded-2xl overflow-hidden min-w-0",
+                                    "p-4 rounded-2xl overflow-hidden w-full min-w-0",
                                     msg.role === "user"
                                         ? "bg-blue-600 text-white rounded-tr-none"
                                         : "bg-zinc-900 border border-white/10 rounded-tl-none"
@@ -437,7 +474,7 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                     ))}
                 </AnimatePresence>
 
-                {loading && (
+                {(loading || streamingStatus) && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -446,9 +483,25 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shrink-0 shadow-lg animate-pulse">
                             <Bot className="w-5 h-5 text-white opacity-80" />
                         </div>
-                        <div className="bg-zinc-900 border border-white/10 p-4 rounded-2xl rounded-tl-none flex items-center gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
-                            <span className="text-zinc-400 text-sm">Analyzing code...</span>
+                        <div className="bg-zinc-900 border border-white/10 p-4 rounded-2xl rounded-tl-none flex-1">
+                            {streamingStatus ? (
+                                <StreamingProgress
+                                    message={streamingStatus.message}
+                                    progress={streamingStatus.progress}
+                                />
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+                                    <span className="text-zinc-400 text-sm">Analyzing code...</span>
+                                </div>
+                            )}
+
+                            {/* Show streaming content if available */}
+                            {currentStreamingMessage && (
+                                <div className="prose prose-invert prose-sm max-w-none leading-relaxed break-words overflow-hidden w-full min-w-0 mt-4 border-t border-white/10 pt-4">
+                                    <MessageContent content={currentStreamingMessage} messageId="streaming" />
+                                </div>
+                            )}
                         </div>
                     </motion.div>
                 )}
@@ -486,12 +539,16 @@ export function ChatInterface({ repoContext, onToggleSidebar }: ChatInterfacePro
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder="Ask a question about the code..."
-                        className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 pr-12 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-600/50 transition-all"
+                        placeholder={totalTokens >= MAX_TOKENS ? "Conversation limit reached. Please clear chat." : "Ask a question about the code..."}
+                        className={cn(
+                            "w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 pr-12 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-600/50 transition-all",
+                            totalTokens >= MAX_TOKENS && "opacity-50 cursor-not-allowed"
+                        )}
+                        disabled={totalTokens >= MAX_TOKENS}
                     />
                     <button
                         type="submit"
-                        disabled={!input.trim() || loading}
+                        disabled={!input.trim() || loading || totalTokens >= MAX_TOKENS}
                         className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-zinc-400 hover:text-white disabled:opacity-50 transition-colors"
                     >
                         <Send className="w-5 h-5" />

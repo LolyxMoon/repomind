@@ -14,10 +14,15 @@ export function SmartLink({ href, children, ...props }: SmartLinkProps) {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
-    const [type, setType] = useState<"profile" | "repo" | "link">("link");
+    const [type, setType] = useState<"profile" | "repo" | "link" | "preview">("link");
 
     useEffect(() => {
         if (!href) return;
+
+        if (href.startsWith("#preview-")) {
+            setType("preview");
+            return;
+        }
 
         // Check if it's a GitHub URL
         const githubUrlRegex = /^https:\/\/github\.com\/([a-zA-Z0-9-]+)(\/([a-zA-Z0-9-_\.]+))?$/;
@@ -101,6 +106,24 @@ export function SmartLink({ href, children, ...props }: SmartLinkProps) {
                     language={data.language}
                 />
             </div>
+        );
+    }
+
+    if (type === "preview") {
+        return (
+            <button
+                onClick={(e) => {
+                    e.preventDefault();
+                    const filePath = href?.replace("#preview-", "");
+                    if (filePath) {
+                        window.dispatchEvent(new CustomEvent('open-file-preview', { detail: filePath }));
+                    }
+                }}
+                className="text-purple-400 hover:text-purple-300 hover:underline inline-flex items-center gap-1 cursor-pointer bg-transparent border-none p-0 font-mono text-sm"
+                title="Open file preview"
+            >
+                {children}
+            </button>
         );
     }
 

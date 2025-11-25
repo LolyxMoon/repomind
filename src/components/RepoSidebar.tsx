@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { File, Folder, FolderOpen, GitBranch, ChevronRight, ChevronDown, X, AlertCircle } from "lucide-react";
-import { FileNode } from "@/lib/github";
+import { File, Folder, FolderOpen, GitBranch, ChevronRight, ChevronDown, X, AlertCircle, Star, GitFork, CircleDot, Calendar } from "lucide-react";
+import { FileNode, GitHubRepo } from "@/lib/github";
 import { cn } from "@/lib/utils";
 
 interface RepoSidebarProps {
@@ -12,6 +12,7 @@ interface RepoSidebarProps {
     onClose: () => void;
     onFileDoubleClick?: (filePath: string) => void;
     hiddenFiles?: { path: string; reason: string }[];
+    repoData?: GitHubRepo;
 }
 
 type TreeNode = {
@@ -82,8 +83,10 @@ function FileTreeNode({
     const [isOpen, setIsOpen] = useState(false);
     const isFolder = node.type === "tree";
 
-    const handleDoubleClick = () => {
-        if (!isFolder && onFileDoubleClick) {
+    const handleClick = () => {
+        if (isFolder) {
+            setIsOpen(!isOpen);
+        } else if (onFileDoubleClick) {
             onFileDoubleClick(node.path);
         }
     };
@@ -92,11 +95,10 @@ function FileTreeNode({
         <div>
             <div
                 className={cn(
-                    "flex items-center gap-1.5 py-1 px-2 text-sm text-zinc-400 hover:text-white hover:bg-white/5 rounded cursor-pointer select-none transition-colors",
+                    "flex items-center gap-1.5 py-1 px-2 text-sm text-zinc-300 hover:text-white hover:bg-white/5 rounded cursor-pointer select-none transition-colors",
                     depth > 0 && "ml-3"
                 )}
-                onClick={() => isFolder && setIsOpen(!isOpen)}
-                onDoubleClick={handleDoubleClick}
+                onClick={handleClick}
             >
                 {isFolder && (
                     <span className="text-zinc-600">
@@ -133,7 +135,7 @@ function FileTreeNode({
     );
 }
 
-export function RepoSidebar({ fileTree, repoName, isOpen, onClose, onFileDoubleClick, hiddenFiles = [] }: RepoSidebarProps) {
+export function RepoSidebar({ fileTree, repoName, isOpen, onClose, onFileDoubleClick, hiddenFiles = [], repoData }: RepoSidebarProps) {
     const tree = buildTree(fileTree);
     const [showHiddenFiles, setShowHiddenFiles] = useState(false);
 
@@ -149,24 +151,56 @@ export function RepoSidebar({ fileTree, repoName, isOpen, onClose, onFileDoubleC
 
             {/* Sidebar */}
             <div className={cn(
-                "w-64 border-r border-white/10 bg-zinc-900/50 flex flex-col h-full overflow-hidden transition-transform duration-300 ease-in-out",
+                "w-64 max-w-[80vw] md:max-w-none border-r border-white/10 bg-zinc-900 flex flex-col h-full overflow-hidden transition-transform duration-300 ease-in-out",
                 // Mobile: fixed and slide in/out
                 "md:relative md:translate-x-0",
                 "fixed z-50",
                 isOpen ? "translate-x-0" : "-translate-x-full"
             )}>
-                <div className="p-4 border-b border-white/10 bg-zinc-900/80 backdrop-blur-sm flex items-center justify-between">
-                    <h2 className="font-semibold text-white flex items-center gap-2 text-sm">
-                        <GitBranch className="w-4 h-4 text-purple-400" />
-                        <span className="truncate" title={repoName}>{repoName}</span>
-                    </h2>
-                    {/* Close button for mobile */}
-                    <button
-                        onClick={onClose}
-                        className="md:hidden p-1 hover:bg-white/10 rounded transition-colors"
-                    >
-                        <X className="w-4 h-4 text-zinc-400" />
-                    </button>
+                <div className="p-4 border-b border-white/10 bg-zinc-900 flex flex-col gap-3">
+                    <div className="flex items-center justify-between w-full">
+                        <h2 className="font-semibold text-white flex items-center gap-2 text-sm overflow-hidden">
+                            <GitBranch className="w-4 h-4 text-purple-400 shrink-0" />
+                            <span className="truncate" title={repoName}>{repoName}</span>
+                        </h2>
+                        {/* Close button for mobile */}
+                        <button
+                            onClick={onClose}
+                            className="md:hidden p-1 hover:bg-white/10 rounded transition-colors shrink-0"
+                        >
+                            <X className="w-4 h-4 text-zinc-400" />
+                        </button>
+                    </div>
+
+                    {repoData && (
+                        <div className="space-y-3">
+                            {repoData.description && (
+                                <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+                                    {repoData.description}
+                                </p>
+                            )}
+
+                            <div className="flex items-center justify-between text-xs text-zinc-500">
+                                <div className="flex items-center gap-1" title="Stars">
+                                    <Star className="w-3 h-3 text-yellow-500/70" />
+                                    <span>{repoData.stargazers_count}</span>
+                                </div>
+                                <div className="flex items-center gap-1" title="Forks">
+                                    <GitFork className="w-3 h-3 text-blue-400/70" />
+                                    <span>{repoData.forks_count}</span>
+                                </div>
+                                <div className="flex items-center gap-1" title="Open Issues">
+                                    <CircleDot className="w-3 h-3 text-green-400/70" />
+                                    <span>{repoData.open_issues_count}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 text-[10px] text-zinc-600 uppercase tracking-wider font-medium">
+                                <Calendar className="w-3 h-3" />
+                                <span>Updated {new Date(repoData.updated_at).toLocaleDateString()}</span>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-2">
