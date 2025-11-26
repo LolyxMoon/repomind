@@ -2,7 +2,7 @@
 
 ![RepoMind Banner](/public/repomind.png)
 
-<div align="center">
+<div align="center">a
 
 [![GitHub stars](https://img.shields.io/github/stars/403errors/repomind?style=social)](https://github.com/403errors/repomind)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
